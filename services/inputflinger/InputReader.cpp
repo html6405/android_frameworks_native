@@ -84,6 +84,8 @@ static const nsecs_t TOUCH_DATA_TIMEOUT = ms2ns(20);
 // data.
 static const nsecs_t STYLUS_DATA_LATENCY = ms2ns(10);
 
+static const nsecs_t STYLUS_PALM_REJECTION_TIME = ms2ns(50);
+
 // --- Static Functions ---
 
 template<typename T>
@@ -6281,6 +6283,7 @@ void TouchInputMapper::dispatchPointerStylus(nsecs_t when, uint32_t policyFlags)
         mPointerSimple.currentProperties.id = 0;
         mPointerSimple.currentProperties.toolType =
                 mCurrentCookedState.cookedPointerData.pointerProperties[index].toolType;
+        mLastStylusTime = when;
     } else {
         down = false;
         hovering = false;
@@ -6362,6 +6365,11 @@ void TouchInputMapper::dispatchPointerSimple(nsecs_t when, uint32_t policyFlags,
         } else if (!down && !hovering && (mPointerSimple.down || mPointerSimple.hovering)) {
             mPointerController->fade(PointerControllerInterface::TRANSITION_GRADUAL);
         }
+    }
+
+    if (rejectPalm(when)) {     // stylus is currently active
+        mPointerSimple.reset();
+        return;
     }
 
     if (mPointerSimple.down && !down) {
@@ -6484,6 +6492,9 @@ void TouchInputMapper::dispatchMotion(nsecs_t when, uint32_t policyFlags, uint32
         const PointerProperties* properties, const PointerCoords* coords,
         const uint32_t* idToIndex, BitSet32 idBits, int32_t changedId,
         float xPrecision, float yPrecision, nsecs_t downTime) {
+
+    if (rejectPalm(when)) return;
+
     PointerCoords pointerCoords[MAX_POINTERS];
     PointerProperties pointerProperties[MAX_POINTERS];
     uint32_t pointerCount = 0;
@@ -7118,6 +7129,13 @@ void ExternalStylusInputMapper::sync(nsecs_t when) {
     mContext->dispatchExternalStylusState(mStylusState);
 }
 
+nsecs_t TouchInputMapper::mLastStylusTime = 0;
+
+bool TouchInputMapper::rejectPalm(nsecs_t when) {
+    return (when - mLastStylusTime < STYLUS_PALM_REJECTION_TIME) &&
+        mPointerSimple.currentProperties.toolType != AMOTION_EVENT_TOOL_TYPE_STYLUS &&
+    mPointerSimple.currentProperties.toolType != AMOTION_EVENT_TOOL_TYPE_ERASER;
+}
 
 // --- JoystickInputMapper ---
 

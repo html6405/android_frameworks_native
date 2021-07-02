@@ -1492,6 +1492,9 @@ protected:
     // The time the primary pointer last went down.
     nsecs_t mDownTime;
 
+    // Time when the stylus touched last
+    static nsecs_t mLastStylusTime ;
+
     // The pointer controller, or null if the device is not a pointer.
     sp<PointerControllerInterface> mPointerController;
 
@@ -1816,7 +1819,7 @@ private:
     void clearStylusDataPendingFlags();
 
     void sync(nsecs_t when);
-
+    bool rejectPalm(nsecs_t when) ;
     bool consumeRawTouches(nsecs_t when, uint32_t policyFlags);
     void processRawTouches(bool timeout);
     void cookAndDispatch(nsecs_t when);
