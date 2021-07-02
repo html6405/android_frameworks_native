@@ -6358,7 +6358,7 @@ void TouchInputMapper::dispatchPointerSimple(nsecs_t when, uint32_t policyFlags,
 
     if (mPointerController != NULL) {
         if (down || hovering) {
-            mPointerController->setPresentation(PointerControllerInterface::PRESENTATION_POINTER);
+            mPointerController->setPresentation(PointerControllerInterface::PRESENTATION_SPOT);
             mPointerController->clearSpots();
             mPointerController->setButtonState(mCurrentRawState.buttonState);
             mPointerController->unfade(PointerControllerInterface::TRANSITION_IMMEDIATE);
