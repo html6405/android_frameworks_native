@@ -2,3 +2,7 @@ service gpu /system/bin/gpuservice
     class core
     user gpu_service
     group graphics readtracefs
+    disabled
+
+on property:ro.kernel.ebpf.supported=true
+    start gpu
