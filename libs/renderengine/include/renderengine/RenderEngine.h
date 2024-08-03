@@ -104,8 +104,6 @@ public:
 
     static std::unique_ptr<RenderEngine> create(const RenderEngineCreationArgs& args);
 
-    static bool canSupport(GraphicsApi);
-
     virtual ~RenderEngine() = 0;
 
     // ----- BEGIN DEPRECATED INTERFACE -----

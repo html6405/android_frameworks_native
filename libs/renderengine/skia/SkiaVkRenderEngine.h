@@ -27,6 +27,8 @@ namespace skia {
 
 class SkiaVkRenderEngine : public SkiaRenderEngine {
 public:
+    // Returns false if Vulkan implementation can't support SkiaVkRenderEngine.
+    static bool canSupportSkiaVkRenderEngine();
     static std::unique_ptr<SkiaVkRenderEngine> create(const RenderEngineCreationArgs& args);
     ~SkiaVkRenderEngine() override;
 
