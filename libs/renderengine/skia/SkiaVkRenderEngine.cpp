@@ -687,7 +687,7 @@ std::unique_ptr<SkiaVkRenderEngine> SkiaVkRenderEngine::create(
 }
 
 SkiaVkRenderEngine::SkiaVkRenderEngine(const RenderEngineCreationArgs& args)
-      : SkiaRenderEngine(args.threaded, static_cast<PixelFormat>(args.pixelFormat),
+      : SkiaRenderEngine(args.renderEngineType, static_cast<PixelFormat>(args.pixelFormat),
                          args.supportsBackgroundBlur) {}
 
 SkiaVkRenderEngine::~SkiaVkRenderEngine() {

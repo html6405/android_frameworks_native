@@ -270,9 +270,9 @@ void SkiaRenderEngine::setEnableTracing(bool tracingEnabled) {
     SkAndroidFrameworkTraceUtil::setEnableTracing(tracingEnabled);
 }
 
-SkiaRenderEngine::SkiaRenderEngine(Threaded threaded, PixelFormat pixelFormat,
+SkiaRenderEngine::SkiaRenderEngine(RenderEngineType type, PixelFormat pixelFormat,
                                    bool supportsBackgroundBlur)
-      : RenderEngine(threaded), mDefaultPixelFormat(pixelFormat) {
+      : RenderEngine(type), mDefaultPixelFormat(pixelFormat) {
     if (supportsBackgroundBlur) {
         ALOGD("Background Blurs Enabled");
         mBlurFilter = new KawaseBlurFilter();
@@ -390,9 +390,10 @@ void SkiaRenderEngine::ensureGrContextsCreated() {
 void SkiaRenderEngine::mapExternalTextureBuffer(const sp<GraphicBuffer>& buffer,
                                                   bool isRenderable) {
     // Only run this if RE is running on its own thread. This
-    // way the access to GL/VK operations is guaranteed to be happening on the
+    // way the access to GL operations is guaranteed to be happening on the
     // same thread.
-    if (!isThreaded()) {
+    if (mRenderEngineType != RenderEngineType::SKIA_GL_THREADED &&
+        mRenderEngineType != RenderEngineType::SKIA_VK_THREADED) {
         return;
     }
     // We don't attempt to map a buffer if the buffer contains protected content. In GL this is

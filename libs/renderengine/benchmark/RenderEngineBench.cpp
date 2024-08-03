@@ -30,6 +30,46 @@ using namespace android;
 using namespace android::renderengine;
 
 ///////////////////////////////////////////////////////////////////////////////
+//  Helpers for Benchmark::Apply
+///////////////////////////////////////////////////////////////////////////////
+
+std::string RenderEngineTypeName(RenderEngine::RenderEngineType type) {
+    switch (type) {
+        case RenderEngine::RenderEngineType::SKIA_GL_THREADED:
+            return "skiaglthreaded";
+        case RenderEngine::RenderEngineType::SKIA_GL:
+            return "skiagl";
+        case RenderEngine::RenderEngineType::SKIA_VK:
+            return "skiavk";
+        case RenderEngine::RenderEngineType::SKIA_VK_THREADED:
+            return "skiavkthreaded";
+    }
+}
+
+/**
+ * Passed (indirectly - see RunSkiaGLThreaded) to Benchmark::Apply to create a
+ * Benchmark which specifies which RenderEngineType it uses.
+ *
+ * This simplifies calling ->Arg(type)->Arg(type) and provides strings to make
+ * it obvious which version is being run.
+ *
+ * @param b The benchmark family
+ * @param type The type of RenderEngine to use.
+ */
+static void AddRenderEngineType(benchmark::internal::Benchmark* b,
+                                RenderEngine::RenderEngineType type) {
+    b->Arg(static_cast<int64_t>(type));
+    b->ArgName(RenderEngineTypeName(type));
+}
+
+/**
+ * Run a benchmark once using SKIA_GL_THREADED.
+ */
+static void RunSkiaGLThreaded(benchmark::internal::Benchmark* b) {
+    AddRenderEngineType(b, RenderEngine::RenderEngineType::SKIA_GL_THREADED);
+}
+
+///////////////////////////////////////////////////////////////////////////////
 //  Helpers for calling drawLayers
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -64,8 +104,7 @@ std::pair<uint32_t, uint32_t> getDisplaySize() {
     return std::pair<uint32_t, uint32_t>(width, height);
 }
 
-static std::unique_ptr<RenderEngine> createRenderEngine(RenderEngine::Threaded threaded,
-                                                        RenderEngine::GraphicsApi graphicsApi) {
+static std::unique_ptr<RenderEngine> createRenderEngine(RenderEngine::RenderEngineType type) {
     auto args = RenderEngineCreationArgs::Builder()
                         .setPixelFormat(static_cast<int>(ui::PixelFormat::RGBA_8888))
                         .setImageCacheSize(1)
@@ -73,8 +112,7 @@ static std::unique_ptr<RenderEngine> createRenderEngine(RenderEngine::Threaded t
                         .setPrecacheToneMapperShaderOnly(false)
                         .setSupportsBackgroundBlur(true)
                         .setContextPriority(RenderEngine::ContextPriority::REALTIME)
-                        .setThreaded(threaded)
-                        .setGraphicsApi(graphicsApi)
+                        .setRenderEngineType(type)
                         .build();
     return RenderEngine::create(args);
 }
@@ -176,11 +214,8 @@ static void benchDrawLayers(RenderEngine& re, const std::vector<LayerSettings>& 
 //  Benchmarks
 ///////////////////////////////////////////////////////////////////////////////
 
-template <class... Args>
-void BM_blur(benchmark::State& benchState, Args&&... args) {
-    auto args_tuple = std::make_tuple(std::move(args)...);
-    auto re = createRenderEngine(static_cast<RenderEngine::Threaded>(std::get<0>(args_tuple)),
-                                 static_cast<RenderEngine::GraphicsApi>(std::get<1>(args_tuple)));
+void BM_blur(benchmark::State& benchState) {
+    auto re = createRenderEngine(static_cast<RenderEngine::RenderEngineType>(benchState.range()));
 
     // Initially use cpu access so we can decode into it with AImageDecoder.
     auto [width, height] = getDisplaySize();
@@ -224,5 +259,4 @@ void BM_blur(benchmark::State& benchState, Args&&... args) {
     benchDrawLayers(*re, layers, benchState, "blurred");
 }
 
-BENCHMARK_CAPTURE(BM_blur, SkiaGLThreaded, RenderEngine::Threaded::YES,
-                  RenderEngine::GraphicsApi::GL);
+BENCHMARK(BM_blur)->Apply(RunSkiaGLThreaded);
