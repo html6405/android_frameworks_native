@@ -933,6 +933,7 @@ void SurfaceFlinger::init() FTL_FAKE_GUARD(kMainThreadContext) {
     // the DisplayDevice, hence the above commit of the primary display. Remove that special case by
     // initializing the Scheduler after configureLocked, once decoupled from DisplayDevice.
     initScheduler(display);
+    dispatchDisplayHotplugEvent(display->getPhysicalId(), true);
 
     mLayerTracing.setTakeLayersSnapshotProtoFunction([&](uint32_t traceFlags) {
         auto snapshot = perfetto::protos::LayersSnapshotProto{};
@@ -1800,7 +1801,7 @@ status_t SurfaceFlinger::overrideHdrTypes(const sp<IBinder>& displayToken,
     }
 
     display->overrideHdrTypes(hdrTypes);
-    mScheduler->dispatchHotplug(display->getPhysicalId(), scheduler::Scheduler::Hotplug::Connected);
+    dispatchDisplayHotplugEvent(display->getPhysicalId(), true /* connected */);
     return NO_ERROR;
 }
 
@@ -2172,9 +2173,10 @@ void SurfaceFlinger::onComposerHalVsync(hal::HWDisplayId hwcDisplayId, int64_t t
         vsyncPeriod.has_value()) {
         // use ~0 instead of -1 as AidlComposerHal.cpp passes the param as unsigned int32
         if (mIsHotplugErrViaNegVsync && vsyncPeriod.value() == ~0) {
-            const auto errorCode = static_cast<int32_t>(-timestamp);
-            ALOGD("%s: Hotplug error %d for display %" PRIu64, __func__, errorCode, hwcDisplayId);
-            mScheduler->dispatchHotplugError(errorCode);
+            const int32_t hotplugErrorCode = static_cast<int32_t>(-timestamp);
+            ALOGD("SurfaceFlinger got hotplugErrorCode=%d for display %" PRIu64, hotplugErrorCode,
+                  hwcDisplayId);
+            mScheduler->onHotplugConnectionError(scheduler::Cycle::Render, hotplugErrorCode);
             return;
         }
 
@@ -2183,7 +2185,8 @@ void SurfaceFlinger::onComposerHalVsync(hal::HWDisplayId hwcDisplayId, int64_t t
             // one byte is good enough to encode android.hardware.drm.HdcpLevel
             const int32_t maxLevel = (value >> 8) & 0xFF;
             const int32_t connectedLevel = value & 0xFF;
-            ALOGD("%s: HDCP levels changed (connected=%d, max=%d) for display %" PRIu64, __func__,
+            ALOGD("SurfaceFlinger got HDCP level changed: connected=%d, max=%d for "
+                  "display=%" PRIu64,
                   connectedLevel, maxLevel, hwcDisplayId);
             updateHdcpLevels(hwcDisplayId, connectedLevel, maxLevel);
             return;
@@ -2222,10 +2225,9 @@ void SurfaceFlinger::onComposerHalHotplugEvent(hal::HWDisplayId hwcDisplayId,
     }
 
     if (FlagManager::getInstance().hotplug2()) {
+        ALOGD("SurfaceFlinger got hotplug event=%d", static_cast<int32_t>(event));
         // TODO(b/311403559): use enum type instead of int
-        const auto errorCode = static_cast<int32_t>(event);
-        ALOGD("%s: Hotplug error %d for display %" PRIu64, __func__, errorCode, hwcDisplayId);
-        mScheduler->dispatchHotplugError(errorCode);
+        mScheduler->onHotplugConnectionError(scheduler::Cycle::Render, static_cast<int32_t>(event));
     }
 }
 
@@ -3541,8 +3543,9 @@ const char* SurfaceFlinger::processHotplug(PhysicalDisplayId displayId,
     if (!activeMode) {
         ALOGE("Failed to hotplug display %s", to_string(displayId).c_str());
         if (FlagManager::getInstance().hotplug2()) {
-            mScheduler->dispatchHotplugError(
-                    static_cast<int32_t>(DisplayHotplugEvent::ERROR_UNKNOWN));
+            mScheduler->onHotplugConnectionError(scheduler::Cycle::Render,
+                                                 static_cast<int32_t>(
+                                                         DisplayHotplugEvent::ERROR_UNKNOWN));
         }
         getHwComposer().disconnectDisplay(displayId);
         return nullptr;
@@ -3590,6 +3593,11 @@ const char* SurfaceFlinger::processHotplug(PhysicalDisplayId displayId,
 
     mCurrentState.displays.add(token, state);
     return "Connecting";
+}
+
+void SurfaceFlinger::dispatchDisplayHotplugEvent(PhysicalDisplayId displayId, bool connected) {
+    mScheduler->onHotplugReceived(scheduler::Cycle::Render, displayId, connected);
+    mScheduler->onHotplugReceived(scheduler::Cycle::LastComposite, displayId, connected);
 }
 
 void SurfaceFlinger::dispatchDisplayModeChangeEvent(PhysicalDisplayId displayId,
@@ -3800,11 +3808,16 @@ void SurfaceFlinger::processDisplayAdded(const wp<IBinder>& displayToken,
                                                  displaySurface, producer);
 
     if (mScheduler && !display->isVirtual()) {
-        // TODO(b/241285876): Annotate `processDisplayAdded` instead.
-        ftl::FakeGuard guard(kMainThreadContext);
+        const auto displayId = display->getPhysicalId();
+        {
+            // TODO(b/241285876): Annotate `processDisplayAdded` instead.
+            ftl::FakeGuard guard(kMainThreadContext);
 
-        // For hotplug reconnect, renew the registration since display modes have been reloaded.
-        mScheduler->registerDisplay(display->getPhysicalId(), display->holdRefreshRateSelector());
+            // For hotplug reconnect, renew the registration since display modes have been reloaded.
+            mScheduler->registerDisplay(displayId, display->holdRefreshRateSelector());
+        }
+
+        dispatchDisplayHotplugEvent(displayId, true);
     }
 
     if (display->isVirtual()) {
@@ -3843,6 +3856,7 @@ void SurfaceFlinger::processDisplayRemoved(const wp<IBinder>& displayToken) {
         if (display->isVirtual()) {
             releaseVirtualDisplay(display->getVirtualId());
         } else {
+            dispatchDisplayHotplugEvent(display->getPhysicalId(), false);
             mScheduler->unregisterDisplay(display->getPhysicalId());
         }
     }
@@ -4479,9 +4493,6 @@ void SurfaceFlinger::initScheduler(const sp<const DisplayDevice>& display) {
                                   mFrameTimeline->getTokenManager(),
                                   /* workDuration */ activeRefreshRate.getPeriod(),
                                   /* readyDuration */ configs.late.sfWorkDuration);
-
-    // Dispatch after EventThread creation, since registerDisplay above skipped dispatch.
-    mScheduler->dispatchHotplug(display->getPhysicalId(), scheduler::Scheduler::Hotplug::Connected);
 
     mScheduler->initVsync(*mFrameTimeline->getTokenManager(), configs.late.sfWorkDuration);
 

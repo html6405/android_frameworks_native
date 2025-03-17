@@ -142,10 +142,8 @@ public:
         return cycle == Cycle::Render ? mRenderEventConnection : mLastCompositeEventConnection;
     }
 
-    enum class Hotplug { Connected, Disconnected };
-    void dispatchHotplug(PhysicalDisplayId, Hotplug);
-
-    void dispatchHotplugError(int32_t errorCode);
+    void onHotplugReceived(Cycle, PhysicalDisplayId, bool connected);
+    void onHotplugConnectionError(Cycle, int32_t errorCode);
 
     void onPrimaryDisplayModeChanged(Cycle, const FrameRateMode&) EXCLUDES(mPolicyLock);
     void onNonPrimaryDisplayModeChanged(Cycle, const FrameRateMode&);

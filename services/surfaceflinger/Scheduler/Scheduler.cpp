@@ -154,13 +154,9 @@ void Scheduler::registerDisplayInternal(PhysicalDisplayId displayId,
     if (isNew) {
         onHardwareVsyncRequest(displayId, false);
     }
-
-    dispatchHotplug(displayId, Hotplug::Connected);
 }
 
 void Scheduler::unregisterDisplay(PhysicalDisplayId displayId) {
-    dispatchHotplug(displayId, Hotplug::Disconnected);
-
     demotePacesetterDisplay();
 
     std::shared_ptr<VsyncSchedule> pacesetterVsyncSchedule;
@@ -379,18 +375,15 @@ sp<IDisplayEventConnection> Scheduler::createDisplayEventConnection(
     return connection;
 }
 
-void Scheduler::dispatchHotplug(PhysicalDisplayId displayId, Hotplug hotplug) {
+void Scheduler::onHotplugReceived(Cycle cycle, PhysicalDisplayId displayId, bool connected) {
     if (hasEventThreads()) {
-        const bool connected = hotplug == Hotplug::Connected;
-        eventThreadFor(Cycle::Render).onHotplugReceived(displayId, connected);
-        eventThreadFor(Cycle::LastComposite).onHotplugReceived(displayId, connected);
+        eventThreadFor(cycle).onHotplugReceived(displayId, connected);
     }
 }
 
-void Scheduler::dispatchHotplugError(int32_t errorCode) {
+void Scheduler::onHotplugConnectionError(Cycle cycle, int32_t errorCode) {
     if (hasEventThreads()) {
-        eventThreadFor(Cycle::Render).onHotplugConnectionError(errorCode);
-        eventThreadFor(Cycle::LastComposite).onHotplugConnectionError(errorCode);
+        eventThreadFor(cycle).onHotplugConnectionError(errorCode);
     }
 }
 
