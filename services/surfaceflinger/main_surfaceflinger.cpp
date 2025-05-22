@@ -177,6 +177,19 @@ int main(int, char**) {
     }
 
     dumpBinderState();
+    for (int attempt = 0; attempt < 5; ++attempt) {
+        if (access("/sys/kernel/ion/total_heaps_kb", F_OK) == 0) {
+            ALOGI("ION sysfs ready (attempt %d)", attempt + 1);
+            break;
+        } else {
+            ALOGW("ION sysfs not ready (attempt %d), retrying...", attempt + 1);
+            sleep(1);
+        }
+    }
+    if (access("/sys/kernel/ion/total_heaps_kb", F_OK) != 0) {
+        ALOGE("ION sysfs missing after retries — continuing anyway.");
+    }
+
     // run surface flinger in this thread
     flinger->run();
 
