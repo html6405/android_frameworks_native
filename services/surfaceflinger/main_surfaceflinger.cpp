@@ -77,6 +77,20 @@ static void startDisplayService() {
     }
 }
 
+// At the start of main() or just before loop runs
+#include <fstream>
+
+void dumpBinderState() {
+    std::ofstream out("/data/anr/sf_binder_state.txt");
+    out << "=== /dev/binder available: " << (access("/dev/binder", F_OK) == 0 ? "YES" : "NO") << "\n";
+
+    system("cat /proc/binder/stats >> /data/anr/sf_binder_state.txt");
+    system("cat /proc/binder/proc/*/stats >> /data/anr/sf_binder_state.txt");
+    system("cat /proc/meminfo >> /data/anr/sf_binder_state.txt");
+    system("dumpsys SurfaceFlinger >> /data/anr/sf_binder_state.txt");
+    system("dmesg | tail -n 100 >> /data/anr/sf_binder_state.txt");
+}
+
 int main(int, char**) {
     signal(SIGPIPE, SIG_IGN);
 
@@ -162,6 +176,7 @@ int main(int, char**) {
         ALOGW("Failed to set SCHED_FIFO during boot: %s", strerror(errno));
     }
 
+    dumpBinderState();
     // run surface flinger in this thread
     flinger->run();
 
