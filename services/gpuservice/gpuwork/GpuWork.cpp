@@ -25,6 +25,7 @@
 #include <bpf/WaitForProgsLoaded.h>
 #include <libbpf.h>
 #include <log/log.h>
+#include <sys/stat.h>
 #include <random>
 #include <stats_event.h>
 #include <statslog_gpustats.h>
@@ -119,6 +120,14 @@ GpuWork::~GpuWork() {
 void GpuWork::initialize() {
     // Workaround b/347947040 by allowing time for statsd / bpf setup.
     std::this_thread::sleep_for(std::chrono::seconds(30));
+
+    // If the gpu_work_period tracepoint does not exist (e.g. older/GSI kernels),
+    // stall this thread forever to prevent gpuservice from crash-looping.
+    struct stat sb;
+    if (stat("/sys/kernel/tracing/events/power/gpu_work_period", &sb) != 0) {
+        ALOGI("gpu_work_period tracepoint not found, stalling");
+        while (true) sleep(1);
+    }
 
     // Make sure BPF programs are loaded.
     bpf::waitForProgsLoaded();
