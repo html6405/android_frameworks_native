@@ -1661,8 +1661,13 @@ void SurfaceFlinger::applyActiveMode(display::DisplayModeRequest&& activeMode) {
 }
 
 void SurfaceFlinger::initiateDisplayModeChanges() {
-    if (FlagManager::getInstance().synced_resolution_switch() && mBootStage != BootStage::FINISHED)
-            [[unlikely]] {
+    // [GSI] Unconditionally defer ALL display mode changes until boot is finished.
+    // The upstream guard is gated on synced_resolution_switch, which defaults to false
+    // on AP4A, making it a no-op. On GSI targets with multi-rate displays (e.g. garnet
+    // 60/90/120 Hz), persisted mode state from a previous boot can cause SF to request
+    // a mode change on the very first frame. Qualcomm's DSI driver rejects DMS (dynamic
+    // mode switch) before the first frame is committed, producing graphical corruption.
+    if (mBootStage != BootStage::FINISHED) [[unlikely]] {
         return;
     }
 
