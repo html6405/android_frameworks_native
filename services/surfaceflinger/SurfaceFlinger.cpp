@@ -533,7 +533,11 @@ SurfaceFlinger::SurfaceFlinger(Factory& factory) : SurfaceFlinger(factory, SkipI
     mBackpressureGpuComposition = base::GetBoolProperty("debug.sf.enable_gl_backpressure"s, true);
     ALOGI_IF(mBackpressureGpuComposition, "Enabling backpressure for GPU composition");
 
-    mPropagateBackpressure = base::GetBoolProperty("persist.sys.phh.enable_sf_hwc_backpressure"s, false);
+    // phh: backpressure is disabled by default for GSI compatibility.
+    // the treble app can enable it via enable_sf_hwc_backpressure=true,
+    // or force-disable it via sf_disable_backpressure=true.
+    mPropagateBackpressure = base::GetBoolProperty("persist.sys.phh.enable_sf_hwc_backpressure"s, false)
+            && !base::GetBoolProperty("persist.sys.phh.sf_disable_backpressure"s, false);
     ALOGI_IF(!mPropagateBackpressure, "Disabling backpressure propagation");
 
     property_get("ro.surface_flinger.supports_background_blur", value, "0");
@@ -591,7 +595,14 @@ SurfaceFlinger::SurfaceFlinger(Factory& factory) : SurfaceFlinger(factory, SkipI
 }
 
 LatchUnsignaledConfig SurfaceFlinger::getLatchUnsignaledConfig() {
-    if (base::GetBoolProperty("debug.sf.auto_latch_unsignaled"s, true)) {
+    // phh: force-latch all buffers unsignaled when requested via treble app
+    if (base::GetBoolProperty("persist.sys.phh.sf_latch_unsignaled"s, false)) {
+        return LatchUnsignaledConfig::Always;
+    }
+
+    // phh: auto-latch single-layer buffers (default behaviour)
+    if (base::GetBoolProperty("persist.sys.phh.sf_auto_latch_unsignaled"s,
+            base::GetBoolProperty("debug.sf.auto_latch_unsignaled"s, true))) {
         return LatchUnsignaledConfig::AutoSingleLayer;
     }
 
