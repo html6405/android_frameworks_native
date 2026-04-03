@@ -6108,6 +6108,28 @@ void SurfaceFlinger::initializeDisplays() {
         ftl::FakeGuard guard(mStateLock);
 
         // In case of a restart, ensure all displays are off.
+        //
+        // On GSI builds, vendor HWCs (notably MTK) may have been left in
+        // a powered-on state by the bootloader while SF's internal state
+        // defaults to OFF.  This mismatch causes the OFF loop below to
+        // early-return (OFF == OFF) and the subsequent ON to be treated
+        // as a no-op by the HWC (already ON), skipping the DRM modeset
+        // needed to start vblank events.  Without hardware vsync the
+        // display stays blank.
+        //
+        // Fix: pre-set each physical display's SF-side power mode to ON
+        // and balance the refreshable-display counter so the OFF loop
+        // sees an ON-to-OFF transition, taking the full power-off path
+        // through setPhysicalDisplayPowerMode (scheduler teardown, then
+        // HWC setPowerMode OFF).  The subsequent ON loop then performs a
+        // clean OFF-to-ON with a proper DRM modeset.
+        for (const auto& [id, display] : mPhysicalDisplays) {
+            const auto dev = getDisplayDeviceLocked(id);
+            if (dev->getPowerMode() == hal::PowerMode::OFF) {
+                dev->setPowerMode(hal::PowerMode::ON);
+                incRefreshableDisplays();
+            }
+        }
         for (const auto& [id, display] : mPhysicalDisplays) {
             setPhysicalDisplayPowerMode(getDisplayDeviceLocked(id), hal::PowerMode::OFF);
         }
@@ -6158,10 +6180,11 @@ void SurfaceFlinger::setPhysicalDisplayPowerMode(const sp<DisplayDevice>& displa
     const bool shouldApplyOptimizationPolicy =
             FlagManager::getInstance().disable_synthetic_vsync_for_performance() &&
             FlagManager::getInstance().correct_virtual_display_power_state();
-    if ((isInternalDisplay || FlagManager::getInstance().pacesetter_selection()) &&
-        shouldApplyOptimizationPolicy) {
-        applyOptimizationPolicy(__func__);
-    }
+    // defer applyOptimizationPolicy until after the HWC power transition
+    // completes — calling it here kills synthetic vsync before HWC has
+    // physically powered on, creating a vsync gap on slow vendor HWCs
+    // (e.g. MTK takes 300-500ms) that stalls the scheduler and leaves
+    // the display blank after wake.
 
     if (mScheduler->setDisplayPowerMode(displayId, mode)) {
         onNewPacesetterDisplay();
@@ -6267,6 +6290,14 @@ void SurfaceFlinger::setPhysicalDisplayPowerMode(const sp<DisplayDevice>& displa
     } else {
         ALOGE("Attempting to set unknown power mode: %d\n", mode);
         getHwComposer().setPowerMode(displayId, mode);
+    }
+
+    // apply optimisation policy after the HWC power transition so that
+    // synthetic vsync remains available as a fallback during the
+    // (potentially slow) HWC setPowerMode call.
+    if ((isInternalDisplay || FlagManager::getInstance().pacesetter_selection()) &&
+        shouldApplyOptimizationPolicy) {
+        applyOptimizationPolicy(__func__);
     }
 
     if (displayId == mFrontInternalDisplayId) {
