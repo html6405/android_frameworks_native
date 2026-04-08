@@ -238,10 +238,6 @@ void BLASTBufferQueue::initialize() {
                 if (callbackCopy) callbackCopy(reason);
             },
             this);
-
-    // safe default, most producers are expected to override this
-    mProducer->setMaxDequeuedBufferCount(2);
-
     BQA_LOGV("BLASTBufferQueue created");
 }
 
@@ -277,6 +273,11 @@ BLASTBufferQueue::~BLASTBufferQueue() {
 
 void BLASTBufferQueue::onFirstRef() {
     initialize();
+    // safe default, most producers are expected to override this.
+    // call after initialize() returns so the BBQ mMutex is no longer held;
+    // setMaxDequeuedBufferCount calls back into BBQ::resizeFrameEventHistory which
+    // re-enters mMutex and would deadlock if invoked from inside initialize().
+    mProducer->setMaxDequeuedBufferCount(2);
 }
 
 void BLASTBufferQueue::update(const sp<SurfaceControl>& surface, uint32_t width, uint32_t height,
