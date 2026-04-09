@@ -69,6 +69,16 @@ static constexpr ftl::Flags<Workload> TRIGGER_LOAD_CHANGE_HINTS = Workload::EFFE
 PowerAdvisor::PowerAdvisor(std::function<void()>&& sfDisableExpensiveFn,
                            std::chrono::milliseconds timeout)
       : mPowerHal(std::make_unique<power::PowerHalController>()) {
+    // check if EXPENSIVE_RENDERING (mode 6) is in the blocked list.
+    // the property is populated by power-mode-monitor.sh on MTK devices.
+    std::string blocked = android::base::GetProperty("persist.sys.phh.blocked_power_modes", "");
+    if (!blocked.empty()) {
+        std::string search = "," + blocked + ",";
+        if (search.find(",6,") != std::string::npos) {
+            mHasExpensiveRendering = false;
+            ALOGI("EXPENSIVE_RENDERING disabled (mode 6 in blocked_power_modes)");
+        }
+    }
     if (timeout > 0ms) {
         mScreenUpdateTimer.emplace("UpdateImminentTimer", timeout,
                                    /* resetCallback */ nullptr,
