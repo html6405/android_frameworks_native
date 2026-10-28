@@ -39,12 +39,12 @@
 #include <gui/LayerState.h>
 #include <private/gui/ComposerService.h>
 #include <private/gui/ComposerServiceAIDL.h>
-#include <android-base/properties.h>
 #include <binder/IPCThreadState.h>
 #endif
 
 #include <android/native_window.h>
 
+#include <android-base/properties.h>
 #include <android-base/strings.h>
 #include <gui/FenceMonitor.h>
 #include <gui/TraceUtils.h>
@@ -2359,6 +2359,7 @@ int Surface::connect(int api, const sp<SurfaceListener>& listener, bool reportBu
         SURF_LOGE_IF(idErr != NO_ERROR, "Unable to get ID from IGBP: %d", idErr);
         mIsConnected = true;
     }
+#ifndef NO_BINDER
     // For MTK GED KPI, we need to grab the Surface owner's PID
     // and also know whether that owner is surfaceflinger
     if (api == NATIVE_WINDOW_API_EGL && ged_fd >= 0) {
@@ -2397,6 +2398,8 @@ int Surface::connect(int api, const sp<SurfaceListener>& listener, bool reportBu
             mIsSurfaceFlinger = false;
         }
     }
+
+#endif // !defined(NO_BINDER)
 
     if (!err && api == NATIVE_WINDOW_API_CPU) {
         mConnectedToCpu = true;
