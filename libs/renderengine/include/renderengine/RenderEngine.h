@@ -347,6 +347,8 @@ protected:
 };
 
 struct RenderEngineCreationArgs {
+    // Opt-in compatibility backend for drivers that cannot run Skia.
+    bool legacyGles;
     int pixelFormat;
     uint32_t imageCacheSize;
     bool useColorManagement;
@@ -362,14 +364,15 @@ struct RenderEngineCreationArgs {
 
 private:
     // must be created by Builder via constructor with full argument list
-    RenderEngineCreationArgs(int _pixelFormat, uint32_t _imageCacheSize,
+    RenderEngineCreationArgs(bool _legacyGles, int _pixelFormat, uint32_t _imageCacheSize,
                              bool _enableProtectedContext, bool _precacheToneMapperShaderOnly,
                              RenderEngine::BlurAlgorithm _blurAlgorithm,
                              RenderEngine::ContextPriority _contextPriority,
                              RenderEngine::Threaded _threaded,
                              RenderEngine::GraphicsApi _graphicsApi,
                              RenderEngine::SkiaBackend _skiaBackend)
-          : pixelFormat(_pixelFormat),
+          : legacyGles(_legacyGles),
+            pixelFormat(_pixelFormat),
             imageCacheSize(_imageCacheSize),
             enableProtectedContext(_enableProtectedContext),
             precacheToneMapperShaderOnly(_precacheToneMapperShaderOnly),
@@ -384,6 +387,10 @@ private:
 struct RenderEngineCreationArgs::Builder {
     Builder() {}
 
+    Builder& setLegacyGles(bool enabled) {
+        legacyGles = enabled;
+        return *this;
+    }
     Builder& setPixelFormat(int pixelFormat) {
         this->pixelFormat = pixelFormat;
         return *this;
@@ -421,12 +428,13 @@ struct RenderEngineCreationArgs::Builder {
         return *this;
     }
     RenderEngineCreationArgs build() const {
-        return RenderEngineCreationArgs(pixelFormat, imageCacheSize, enableProtectedContext,
+        return RenderEngineCreationArgs(legacyGles, pixelFormat, imageCacheSize, enableProtectedContext,
                                         precacheToneMapperShaderOnly, blurAlgorithm,
                                         contextPriority, threaded, graphicsApi, skiaBackend);
     }
 
 private:
+    bool legacyGles = false;
     // 1 means RGBA_8888
     int pixelFormat = 1;
     uint32_t imageCacheSize = 0;

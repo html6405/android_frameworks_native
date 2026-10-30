@@ -229,16 +229,16 @@ std::optional<RenderEngine::ContextPriority> GLESRenderEngine::createContextPrio
     }
 
     switch (args.contextPriority) {
-        case RenderEngine::ContextPriority::REALTIME:
+        case RenderEngine::ContextPriority::Realtime:
             if (gl::GLExtensions::getInstance().hasRealtimePriority()) {
-                return RenderEngine::ContextPriority::REALTIME;
+                return RenderEngine::ContextPriority::Realtime;
             } else {
                 ALOGI("Realtime priority unsupported, degrading gracefully to high priority");
-                return RenderEngine::ContextPriority::HIGH;
+                return RenderEngine::ContextPriority::High;
             }
-        case RenderEngine::ContextPriority::HIGH:
-        case RenderEngine::ContextPriority::MEDIUM:
-        case RenderEngine::ContextPriority::LOW:
+        case RenderEngine::ContextPriority::High:
+        case RenderEngine::ContextPriority::Medium:
+        case RenderEngine::ContextPriority::Low:
             return args.contextPriority;
         default:
             return std::nullopt;
@@ -279,12 +279,12 @@ std::unique_ptr<GLESRenderEngine> GLESRenderEngine::create(const RenderEngineCre
     EGLContext protectedContext = EGL_NO_CONTEXT;
     if (args.enableProtectedContext && extensions.hasProtectedContent()) {
         protectedContext =
-                createEglContext(display, config, nullptr, priority, Protection::PROTECTED);
+                createEglContext(display, config, nullptr, priority, Protection::Protected);
         ALOGE_IF(protectedContext == EGL_NO_CONTEXT, "Can't create protected context");
     }
 
     EGLContext ctxt =
-            createEglContext(display, config, protectedContext, priority, Protection::UNPROTECTED);
+            createEglContext(display, config, protectedContext, priority, Protection::Unprotected);
 
     // if can't create a GL context, we can only abort.
     LOG_ALWAYS_FATAL_IF(ctxt == EGL_NO_CONTEXT, "EGLContext creation failed");
@@ -292,7 +292,7 @@ std::unique_ptr<GLESRenderEngine> GLESRenderEngine::create(const RenderEngineCre
     EGLSurface stub = EGL_NO_SURFACE;
     if (!extensions.hasSurfacelessContext()) {
         stub = createStubEglPbufferSurface(display, config, args.pixelFormat,
-                                           Protection::UNPROTECTED);
+                                           Protection::Unprotected);
         LOG_ALWAYS_FATAL_IF(stub == EGL_NO_SURFACE, "can't create stub pbuffer");
     }
     EGLBoolean success = eglMakeCurrent(display, stub, stub, ctxt);
@@ -303,14 +303,14 @@ std::unique_ptr<GLESRenderEngine> GLESRenderEngine::create(const RenderEngineCre
     EGLSurface protectedStub = EGL_NO_SURFACE;
     if (protectedContext != EGL_NO_CONTEXT && !extensions.hasSurfacelessContext()) {
         protectedStub = createStubEglPbufferSurface(display, config, args.pixelFormat,
-                                                    Protection::PROTECTED);
+                                                    Protection::Protected);
         ALOGE_IF(protectedStub == EGL_NO_SURFACE, "can't create protected stub pbuffer");
     }
 
     // now figure out what version of GL did we actually get
     GlesVersion version = parseGlesVersion(extensions.getVersion());
 
-    LOG_ALWAYS_FATAL_IF(args.supportsBackgroundBlur && version < GLES_VERSION_3_0,
+    LOG_ALWAYS_FATAL_IF((args.blurAlgorithm != BlurAlgorithm::None) && version < GLES_VERSION_3_0,
         "Blurs require OpenGL ES 3.0. Please unset ro.surface_flinger.supports_background_blur");
 
     // initialize the renderer while GL is current
@@ -379,7 +379,7 @@ EGLConfig GLESRenderEngine::chooseEglConfig(EGLDisplay display, int format, bool
 GLESRenderEngine::GLESRenderEngine(const RenderEngineCreationArgs& args, EGLDisplay display,
                                    EGLConfig config, EGLContext ctxt, EGLSurface stub,
                                    EGLContext protectedContext, EGLSurface protectedStub)
-      : RenderEngine(args.renderEngineType),
+      : RenderEngine(),
         mEGLDisplay(display),
         mEGLConfig(config),
         mEGLContext(ctxt),
@@ -442,7 +442,7 @@ GLESRenderEngine::GLESRenderEngine(const RenderEngineCreationArgs& args, EGLDisp
         mFlushTracer = std::make_unique<FlushTracer>(this);
     }
 
-    if (args.supportsBackgroundBlur) {
+    if (args.blurAlgorithm != BlurAlgorithm::None) {
         mBlurFilter = new BlurFilter(*this);
         checkErrors("BlurFilter creation");
     }
@@ -470,12 +470,14 @@ GLESRenderEngine::GLESRenderEngine(const RenderEngineCreationArgs& args, EGLDisp
              eglGetError());
 
     mShadowTexture = std::make_unique<GLShadowTexture>();
+    glGenTextures(1, &mInputTexture);
 }
 
 GLESRenderEngine::~GLESRenderEngine() {
     // Destroy the image manager first.
     mImageManager = nullptr;
     mShadowTexture = nullptr;
+    glDeleteTextures(1, &mInputTexture);
     cleanFramebufferCache();
     ProgramCache::getInstance().purgeCaches();
     std::lock_guard<std::mutex> lock(mRenderingMutex);
@@ -513,10 +515,12 @@ Framebuffer* GLESRenderEngine::getFramebufferForDrawing() {
     return mDrawingBuffer.get();
 }
 
-std::future<void> GLESRenderEngine::primeCache() {
+std::future<void> GLESRenderEngine::primeCache(PrimeCacheConfig /*config*/) {
     ProgramCache::getInstance().primeCache(mInProtectedContext ? mProtectedEGLContext : mEGLContext,
                                            mPrecacheToneMapperShaderOnly);
-    return {};
+    std::promise<void> promise;
+    promise.set_value();
+    return promise.get_future();
 }
 
 base::unique_fd GLESRenderEngine::flush() {
@@ -746,9 +750,12 @@ void GLESRenderEngine::bindExternalTextureBuffer(uint32_t texName, const sp<Grap
 }
 
 void GLESRenderEngine::mapExternalTextureBuffer(const sp<GraphicBuffer>& buffer,
-                                                bool /*isRenderable*/) {
+                                                bool isRenderable) {
     ATRACE_CALL();
-    mImageManager->cacheAsync(buffer, nullptr);
+    // Output images are managed by the framebuffer cache, not the input texture cache.
+    if (!isRenderable) {
+        mImageManager->cacheAsync(buffer, nullptr);
+    }
 }
 
 std::shared_ptr<ImageManager::Barrier> GLESRenderEngine::cacheExternalTextureBufferForTesting(
@@ -827,7 +834,7 @@ void GLESRenderEngine::unbindExternalTextureBufferInternal(uint64_t bufferId) {
 }
 
 int GLESRenderEngine::getContextPriority() {
-    int value;
+    int value = EGL_CONTEXT_PRIORITY_MEDIUM_IMG;
     eglQueryContext(mEGLDisplay, mEGLContext, EGL_CONTEXT_PRIORITY_LEVEL_IMG, &value);
     return value;
 }
@@ -920,7 +927,7 @@ void GLESRenderEngine::handleRoundedCorners(const DisplaySettings& display,
     // Finally, we cut the layer into 3 parts, with top and bottom parts having rounded corners
     // and the middle part without rounded corners.
     const int32_t radius = ceil(
-            (layer.geometry.roundedCornersRadius.x + layer.geometry.roundedCornersRadius.y) / 2.0);
+            (layer.geometry.roundedCornersRadii.topLeft.x + layer.geometry.roundedCornersRadii.topLeft.y) / 2.0);
     const Rect topRect(bounds.left, bounds.top, bounds.right, bounds.top + radius);
     setScissor(topRect);
     drawMesh(mesh);
@@ -970,9 +977,8 @@ void GLESRenderEngine::unbindFrameBuffer(Framebuffer* /*framebuffer*/) {
 }
 
 bool GLESRenderEngine::canSkipPostRenderCleanup() const {
-//    return mPriorResourcesCleaned ||
-//            (mLastDrawFence != nullptr && mLastDrawFence->getStatus() != Fence::Status::Signaled);
-      return true;
+    // Retain resources across frames: rebinding placeholders stalls legacy Mali drivers.
+    return true;
 }
 
 void GLESRenderEngine::cleanupPostRender() {
@@ -1081,8 +1087,9 @@ EGLImageKHR GLESRenderEngine::createFramebufferImageIfNeeded(ANativeWindowBuffer
 void GLESRenderEngine::drawLayersInternal(
         const std::shared_ptr<std::promise<FenceResult>>&& resultPromise,
         const DisplaySettings& display, const std::vector<LayerSettings>& layers,
-        const std::shared_ptr<ExternalTexture>& buffer, const bool useFramebufferCache,
+        const std::shared_ptr<ExternalTexture>& buffer,
         base::unique_fd&& bufferFence) {
+    constexpr bool useFramebufferCache = true;
     ATRACE_CALL();
     if (layers.empty()) {
         ALOGV("Drawing empty layer stack");
@@ -1110,7 +1117,7 @@ void GLESRenderEngine::drawLayersInternal(
     std::unique_ptr<BindNativeBufferAsFramebuffer> fbo;
     // Gathering layers that requested blur, we'll need them to decide when to render to an
     // offscreen buffer, and when to render to the native buffer.
-    std::deque<const LayerSettings> blurLayers;
+    std::deque<LayerSettings> blurLayers;
     if (CC_LIKELY(mBlurFilter != nullptr)) {
         for (const auto& layer : layers) {
             if (layer.backgroundBlurRadius > 0) {
@@ -1238,11 +1245,11 @@ void GLESRenderEngine::drawLayersInternal(
 
             sp<GraphicBuffer> gBuf = layer.source.buffer.buffer->getBuffer();
             validateInputBufferUsage(gBuf);
-            bindExternalTextureBuffer(layer.source.buffer.textureName, gBuf,
+            bindExternalTextureBuffer(mInputTexture, gBuf,
                                       layer.source.buffer.fence);
 
             usePremultipliedAlpha = layer.source.buffer.usePremultipliedAlpha;
-            Texture texture(Texture::TEXTURE_EXTERNAL, layer.source.buffer.textureName);
+            Texture texture(Texture::TEXTURE_EXTERNAL, mInputTexture);
             mat4 texMatrix = layer.source.buffer.textureTransform;
 
             texture.setMatrix(texMatrix.asArray());
@@ -1266,7 +1273,7 @@ void GLESRenderEngine::drawLayersInternal(
         const half3 solidColor = layer.source.solidColor;
         const half4 color = half4(solidColor.r, solidColor.g, solidColor.b, layer.alpha);
         const float radius =
-                (layer.geometry.roundedCornersRadius.x + layer.geometry.roundedCornersRadius.y) /
+                (layer.geometry.roundedCornersRadii.topLeft.x + layer.geometry.roundedCornersRadii.topLeft.y) /
                 2.0f;
         // Buffer sources will have a black solid color ignored in the shader,
         // so in that scenario the solid color passed here is arbitrary.
@@ -1654,22 +1661,22 @@ EGLContext GLESRenderEngine::createEglContext(EGLDisplay display, EGLConfig conf
     if (contextPriority) {
         contextAttributes.push_back(EGL_CONTEXT_PRIORITY_LEVEL_IMG);
         switch (*contextPriority) {
-            case ContextPriority::REALTIME:
+            case ContextPriority::Realtime:
                 contextAttributes.push_back(EGL_CONTEXT_PRIORITY_REALTIME_NV);
                 break;
-            case ContextPriority::MEDIUM:
+            case ContextPriority::Medium:
                 contextAttributes.push_back(EGL_CONTEXT_PRIORITY_MEDIUM_IMG);
                 break;
-            case ContextPriority::LOW:
+            case ContextPriority::Low:
                 contextAttributes.push_back(EGL_CONTEXT_PRIORITY_LOW_IMG);
                 break;
-            case ContextPriority::HIGH:
+            case ContextPriority::High:
             default:
                 contextAttributes.push_back(EGL_CONTEXT_PRIORITY_HIGH_IMG);
                 break;
         }
     }
-    if (protection == Protection::PROTECTED) {
+    if (protection == Protection::Protected) {
         contextAttributes.push_back(EGL_PROTECTED_CONTENT_EXT);
         contextAttributes.push_back(EGL_TRUE);
     }
@@ -1704,7 +1711,7 @@ EGLSurface GLESRenderEngine::createStubEglPbufferSurface(EGLDisplay display, EGL
     attributes.push_back(1);
     attributes.push_back(EGL_HEIGHT);
     attributes.push_back(1);
-    if (protection == Protection::PROTECTED) {
+    if (protection == Protection::Protected) {
         attributes.push_back(EGL_PROTECTED_CONTENT_EXT);
         attributes.push_back(EGL_TRUE);
     }

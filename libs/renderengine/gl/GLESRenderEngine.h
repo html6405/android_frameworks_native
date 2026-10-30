@@ -29,6 +29,8 @@
 #include <GLES2/gl2.h>
 #include <android-base/thread_annotations.h>
 #include <renderengine/RenderEngine.h>
+#include <renderengine/Framebuffer.h>
+#include <renderengine/Image.h>
 #include <renderengine/private/Description.h>
 #include <sys/types.h>
 #include <ui/FenceResult.h>
@@ -58,9 +60,9 @@ public:
                      EGLSurface protectedStub);
     ~GLESRenderEngine() override EXCLUDES(mRenderingMutex);
 
-    std::future<void> primeCache() override;
-    void genTextures(size_t count, uint32_t* names) override;
-    void deleteTextures(size_t count, uint32_t const* names) override;
+    std::future<void> primeCache(PrimeCacheConfig config) override;
+    void genTextures(size_t count, uint32_t* names);
+    void deleteTextures(size_t count, uint32_t const* names);
     bool isProtected() const { return mInProtectedContext; }
     bool supportsProtectedContent() const override;
     void useProtectedContext(bool useProtectedContext) override;
@@ -107,7 +109,15 @@ protected:
                             const DisplaySettings& display,
                             const std::vector<LayerSettings>& layers,
                             const std::shared_ptr<ExternalTexture>& buffer,
-                            const bool useFramebufferCache, base::unique_fd&& bufferFence) override;
+                            base::unique_fd&& bufferFence) override;
+
+    void tonemapAndDrawGainmapInternal(
+            const std::shared_ptr<std::promise<FenceResult>>&& resultPromise,
+            const std::shared_ptr<ExternalTexture>&, base::borrowed_fd&&, float, ui::Dataspace,
+            const std::shared_ptr<ExternalTexture>&,
+            const std::shared_ptr<ExternalTexture>&) override {
+        resultPromise->set_value(base::unexpected(INVALID_OPERATION));
+    }
 
 private:
     friend class BindNativeBufferAsFramebuffer;
@@ -144,7 +154,7 @@ private:
     void bindExternalTextureImage(uint32_t texName, const Image& image);
     void bindExternalTextureBuffer(uint32_t texName, const sp<GraphicBuffer>& buffer,
                                    const sp<Fence>& fence) EXCLUDES(mRenderingMutex);
-    void cleanFramebufferCache() EXCLUDES(mFramebufferImageCacheMutex) override;
+    void cleanFramebufferCache() EXCLUDES(mFramebufferImageCacheMutex);
 
     // A data space is considered HDR data space if it has BT2020 color space
     // with PQ or HLG transfer function.
@@ -198,6 +208,8 @@ private:
     EGLSurface mProtectedStubSurface;
     GLint mMaxViewportDims[2];
     GLint mMaxTextureSize;
+    // Rebound for each input layer; EGLImages remain cached by buffer ID.
+    GLuint mInputTexture = 0;
     GLuint mVpWidth;
     GLuint mVpHeight;
     Description mState;

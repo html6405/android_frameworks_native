@@ -17,6 +17,7 @@
 #include <renderengine/RenderEngine.h>
 
 #include "renderengine/ExternalTexture.h"
+#include "gl/GLESRenderEngine.h"
 #include "skia/GaneshVkRenderEngine.h"
 #include "skia/GraphiteVkRenderEngine.h"
 #include "skia/SkiaGLRenderEngine.h"
@@ -33,6 +34,14 @@ namespace renderengine {
 
 // TODO: b/341728634 - Don't compile Ganesh unless requested once Graphite is the stable default.
 std::unique_ptr<RenderEngine> RenderEngine::create(const RenderEngineCreationArgs& args) {
+    if (args.legacyGles) {
+        ALOGD("Using legacy GLES RenderEngine");
+        if (args.threaded == Threaded::Yes) {
+            return threaded::RenderEngineThreaded::create(
+                    [args]() { return gl::GLESRenderEngine::create(args); });
+        }
+        return gl::GLESRenderEngine::create(args);
+    }
     threaded::CreateInstanceFactory createInstanceFactory;
 
     ALOGD("%sRenderEngine with Skia%s Backend (%s)",
