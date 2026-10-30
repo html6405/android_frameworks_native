@@ -103,7 +103,10 @@ bool kernelConfigsArePresent(const std::set<std::string>& configs) {
 
     std::map<std::string, std::string> kernelConfigs;
     const status_t result = android::kernelconfigs::LoadKernelConfigs(&kernelConfigs);
-    //LOG_ALWAYS_FATAL_IF(result != OK, "Kernel configs could not be fetched");
+    if (result != OK) {
+        ALOGW("Kernel configs could not be fetched; skipping optional key layout");
+        return false;
+    }
 
     for (const std::string& requiredConfig : configs) {
         const auto configIt = kernelConfigs.find(requiredConfig);
