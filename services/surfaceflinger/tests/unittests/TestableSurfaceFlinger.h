@@ -481,6 +481,11 @@ public:
         return mFlinger->getLayerSnapshotsForScreenshots(snapshotArgs);
     }
 
+    auto retainScreenshotLayers(const std::vector<std::pair<Layer*, sp<LayerFE>>>& layers) {
+        ftl::FakeGuard guard(kMainThreadContext);
+        return mFlinger->retainScreenshotLayers(layers);
+    }
+
     auto getDisplayNativePrimaries(const sp<IBinder>& displayToken,
                                    ui::DisplayPrimaries& primaries) {
         return mFlinger->SurfaceFlinger::getDisplayNativePrimaries(displayToken, primaries);

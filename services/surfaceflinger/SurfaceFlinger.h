@@ -877,6 +877,11 @@ private:
     // the layer to keep track of when its buffer can be released.
     void attachReleaseFenceFutureToLayer(Layer* layer, LayerFE* layerFE, ui::LayerStack layerStack);
 
+    // Keep screenshot layers alive across scheduler hops and release them on the main thread.
+    std::shared_ptr<const std::vector<sp<Layer>>> retainScreenshotLayers(
+            const std::vector<std::pair<Layer*, sp<LayerFE>>>& layers)
+            REQUIRES(kMainThreadContext);
+
     // Checks if a protected layer exists in a list of layers.
     bool layersHasProtectedLayer(const std::vector<std::pair<Layer*, sp<LayerFE>>>& layers) const;
 
@@ -927,6 +932,9 @@ private:
 
         // List of all layer snapshots that are included in the screenshot
         std::vector<std::pair<Layer*, sp<LayerFE>>> layers;
+
+        // Copies of these arguments share ownership until deferred rendering is finished.
+        std::shared_ptr<const std::vector<sp<Layer>>> layerReferences;
 
         // If true, the layers in ScreenshotArgs.layers contains a protected layer.
         bool hasProtectedLayer{false};

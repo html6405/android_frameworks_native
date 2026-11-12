@@ -8079,6 +8079,29 @@ void SurfaceFlinger::attachReleaseFenceFutureToLayer(Layer* layer, LayerFE* laye
     layer->prepareReleaseCallbacks(std::move(futureFence), layerStack);
 }
 
+std::shared_ptr<const std::vector<sp<Layer>>> SurfaceFlinger::retainScreenshotLayers(
+        const std::vector<std::pair<Layer*, sp<LayerFE>>>& layers) {
+    if (layers.empty()) return {};
+
+    auto references = std::make_unique<std::vector<sp<Layer>>>();
+    references->reserve(layers.size());
+    for (const auto& [layer, _] : layers) {
+        references->push_back(sp<Layer>::fromExisting(layer));
+    }
+
+    // ScreenshotArgs also lives on Binder threads. Its last copy must not destroy
+    // a Layer there: Layer's destructor and scheduler bookkeeping require the main thread.
+    return {references.release(),
+            [flinger = sp<SurfaceFlinger>::fromExisting(this)](const auto* retainedLayers) {
+                if (std::this_thread::get_id() == flinger->mMainThreadId) {
+                    delete retainedLayers;
+                } else {
+                    (void)flinger->mScheduler->schedule(
+                            [retainedLayers] { delete retainedLayers; });
+                }
+            }};
+}
+
 // Loop over all visible layers to see whether there's any protected layer. A protected layer is
 // typically a layer with DRM contents, or have the GRALLOC_USAGE_PROTECTED set on the buffer.
 // A protected layer has no implication on whether it's secure, which is explicitly set by
@@ -8134,6 +8157,7 @@ SurfaceFlinger::setScreenshotSnapshotsAndDisplayState(ScreenshotArgs& args,
                     return base::unexpected<status_t>(layersResult.error());
                 }
                 args.layers = std::move(layersResult.value());
+                args.layerReferences = retainScreenshotLayers(args.layers);
                 args.hasProtectedLayer = layersHasProtectedLayer(args.layers);
                 const bool hasProtectedOrDisallowedSecureLayers = args.hasProtectedLayer ||
                         (!args.isSecure && layersHasSecureLayer(args.layers));

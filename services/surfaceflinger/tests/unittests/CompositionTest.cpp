@@ -165,6 +165,49 @@ public:
     std::shared_ptr<renderengine::ExternalTexture> mCaptureScreenBuffer;
 };
 
+TEST_F(CompositionTest, ScreenshotRetainsLayerAfterRemovalUntilLastCaptureCopyIsReleased) {
+    auto args = LayerCreationArgs(mFlinger.flinger(), sp<Client>(), "screenshot-layer",
+                                  ISurfaceComposerClient::eFXSurfaceEffect, LayerMetadata());
+    auto layer = sp<Layer>::make(args);
+    const wp<Layer> weakLayer = layer;
+    mFlinger.injectLegacyLayer(layer);
+
+    auto references = mFlinger.retainScreenshotLayers({{layer.get(), nullptr}});
+    auto deferredCaptureReferences = references;
+    mFlinger.releaseLegacyLayer(layer->sequence);
+    layer.clear();
+    references.reset();
+
+    {
+        auto retainedLayer = weakLayer.promote();
+        ASSERT_NE(nullptr, retainedLayer);
+        // This is the access that crashed after a scheduled screenshot outlived its Layer.
+        retainedLayer->prepareReleaseCallbacks(ftl::yield(FenceResult{Fence::NO_FENCE}),
+                                               ui::UNASSIGNED_LAYER_STACK);
+    }
+    deferredCaptureReferences.reset();
+    EXPECT_EQ(nullptr, weakLayer.promote());
+}
+
+TEST_F(CompositionTest, ScreenshotReleasedOnBinderThreadDefersLayerDestructionToMainThread) {
+    auto args = LayerCreationArgs(mFlinger.flinger(), sp<Client>(), "screenshot-layer",
+                                  ISurfaceComposerClient::eFXSurfaceEffect, LayerMetadata());
+    auto layer = sp<Layer>::make(args);
+    const wp<Layer> weakLayer = layer;
+    auto references = mFlinger.retainScreenshotLayers({{layer.get(), nullptr}});
+    layer.clear();
+
+    sp<MessageHandler> cleanup;
+    EXPECT_CALL(*mFlinger.scheduler(), postMessage(_))
+            .WillOnce(testing::SaveArg<0>(&cleanup));
+    std::thread([references = std::move(references)] {}).join();
+
+    EXPECT_NE(nullptr, weakLayer.promote());
+    ASSERT_NE(nullptr, cleanup);
+    cleanup->handleMessage(Message());
+    EXPECT_EQ(nullptr, weakLayer.promote());
+}
+
 template <typename LayerCase>
 void CompositionTest::displayRefreshCompositionDirtyGeometry() {
     setupForceGeometryDirty();
