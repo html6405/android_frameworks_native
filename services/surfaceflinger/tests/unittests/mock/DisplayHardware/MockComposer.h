@@ -105,6 +105,7 @@ public:
                 (Display, nsecs_t, int32_t, uint32_t*, uint32_t*, int*, uint32_t*));
     MOCK_METHOD4(setCursorPosition, Error(Display, Layer, int32_t, int32_t));
     MOCK_METHOD5(setLayerBuffer, Error(Display, Layer, uint32_t, const sp<GraphicBuffer>&, int));
+    MOCK_METHOD3(setLayerClass, Error(Display, Layer, uint32_t));
     MOCK_METHOD4(setLayerBufferSlotsToClear,
                  Error(Display, Layer, const std::vector<uint32_t>&, uint32_t));
     MOCK_METHOD3(setLayerSurfaceDamage,
