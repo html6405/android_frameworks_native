@@ -9317,7 +9317,7 @@ SurfaceFlinger::getLayerSnapshotsForScreenshots(
         std::optional<ui::LayerStack> layerStack, uint32_t uid,
         std::function<bool(const frontend::LayerSnapshot&, bool& outStopTraversal)>
                 snapshotFilterFn) {
-    return [&, layerStack, uid]() {
+    return [this, layerStack, uid, snapshotFilterFn = std::move(snapshotFilterFn)]() {
         std::vector<std::pair<Layer*, sp<LayerFE>>> layers;
         bool stopTraversal = false;
         mLayerSnapshotBuilder.forEachVisibleSnapshot(
