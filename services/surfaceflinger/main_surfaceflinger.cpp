@@ -77,20 +77,6 @@ static void startDisplayService() {
     }
 }
 
-// At the start of main() or just before loop runs
-#include <fstream>
-
-void dumpBinderState() {
-    std::ofstream out("/data/anr/sf_binder_state.txt");
-    out << "=== /dev/binder available: " << (access("/dev/binder", F_OK) == 0 ? "YES" : "NO") << "\n";
-
-    system("cat /proc/binder/stats >> /data/anr/sf_binder_state.txt");
-    system("cat /proc/binder/proc/*/stats >> /data/anr/sf_binder_state.txt");
-    system("cat /proc/meminfo >> /data/anr/sf_binder_state.txt");
-    system("dumpsys SurfaceFlinger >> /data/anr/sf_binder_state.txt");
-    system("dmesg | tail -n 100 >> /data/anr/sf_binder_state.txt");
-}
-
 int main(int, char**) {
     signal(SIGPIPE, SIG_IGN);
 
@@ -174,20 +160,6 @@ int main(int, char**) {
 
     if (SurfaceFlinger::setSchedFifo(true) != NO_ERROR) {
         ALOGW("Failed to set SCHED_FIFO during boot: %s", strerror(errno));
-    }
-
-    dumpBinderState();
-    for (int attempt = 0; attempt < 5; ++attempt) {
-        if (access("/sys/kernel/ion/total_heaps_kb", F_OK) == 0) {
-            ALOGI("ION sysfs ready (attempt %d)", attempt + 1);
-            break;
-        } else {
-            ALOGW("ION sysfs not ready (attempt %d), retrying...", attempt + 1);
-            sleep(1);
-        }
-    }
-    if (access("/sys/kernel/ion/total_heaps_kb", F_OK) != 0) {
-        ALOGE("ION sysfs missing after retries — continuing anyway.");
     }
 
     // run surface flinger in this thread
