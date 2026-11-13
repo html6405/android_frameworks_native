@@ -177,6 +177,7 @@ void GraphicBuffer::free_handle()
         GraphicBufferAllocator& allocator(GraphicBufferAllocator::get());
         allocator.free(handle);
     }
+    handle = nullptr;
 }
 
 status_t GraphicBuffer::initCheck() const {
